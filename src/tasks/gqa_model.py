@@ -40,6 +40,6 @@ class GQAModel(nn.Module):
         x = self.lxrt_encoder(sent, (feat, pos))
         logit = self.logit_fc(x)
 
-        return logit
+        return logit, x
 
 

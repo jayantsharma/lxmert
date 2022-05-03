@@ -4,6 +4,7 @@
 import os
 import collections
 
+import numpy as np
 import torch
 from tqdm import tqdm
 import torch.nn as nn
@@ -131,23 +132,26 @@ class GQA:
         self.model.eval()
         dset, loader, evaluator = eval_tuple
         quesid2ans = {}
+        supp = {}
         for i, datum_tuple in enumerate(loader):
-            ques_id, feats, boxes, sent = datum_tuple[:4]   # avoid handling target
+            ques_id, feats, boxes, sent, target = datum_tuple # [:4]   # avoid handling target
             with torch.no_grad():
                 feats, boxes = feats.cuda(), boxes.cuda()
-                logit = self.model(feats, boxes, sent)
+                logit, encoding = self.model(feats, boxes, sent)
                 score, label = logit.max(1)
-                for qid, l in zip(ques_id, label.cpu().numpy()):
+                _, tgt = target.max(1)
+                for qid, l, tgt, snt, lgt, enc in zip(ques_id, label.cpu().numpy(), tgt.cpu().numpy(), sent, logit, encoding):
                     ans = dset.label2ans[l]
                     quesid2ans[qid] = ans
+                    supp[qid] = (snt, ans, dset.label2ans[tgt], torch.softmax(lgt, dim=0)[tgt], enc.cpu().numpy())
         if dump is not None:
             evaluator.dump_result(quesid2ans, dump)
-        return quesid2ans
+        return quesid2ans, supp
 
     def evaluate(self, eval_tuple: DataTuple, dump=None):
         dset, loader, evaluator = eval_tuple
-        quesid2ans = self.predict(eval_tuple, dump)
-        return evaluator.evaluate(quesid2ans)
+        quesid2ans, supp = self.predict(eval_tuple, dump)
+        return evaluator.evaluate(quesid2ans, supp)
 
     @staticmethod
     def oracle_score(data_tuple):
@@ -195,6 +199,13 @@ if __name__ == "__main__":
                 get_tuple('testdev', bs=args.batch_size,
                           shuffle=False, drop_last=False),
                 dump=os.path.join(args.output, 'testdev_predict.json')
+            )
+            print(result)
+        if 'valid' in args.test:
+            result = gqa.evaluate(
+                get_tuple('valid', bs=args.batch_size,
+                          shuffle=False, drop_last=False),
+                dump=os.path.join(args.output, 'valid_predict.json')
             )
             print(result)
     else:

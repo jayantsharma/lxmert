@@ -1,6 +1,7 @@
 # coding=utf-8
 # Copyleft 2019 project LXRT.
 
+import csv
 import json
 
 import numpy as np
@@ -159,13 +160,29 @@ class GQAEvaluator:
     def __init__(self, dataset: GQADataset):
         self.dataset = dataset
 
-    def evaluate(self, quesid2ans: dict):
+    def evaluate(self, quesid2ans: dict, supp: dict):
         score = 0.
-        for quesid, ans in quesid2ans.items():
-            datum = self.dataset.id2datum[quesid]
-            label = datum['label']
-            if ans in label:
-                score += label[ans]
+        incorr = 0
+        correctness_label = []
+        encoding = []
+        with open("incorrect.csv", 'w') as csvfile:
+            csvwriter = csv.writer(csvfile)
+            csvwriter.writerow(["Id", "Sentence", "Pred", "Label", "Confidence"])
+            for quesid, ans in quesid2ans.items():
+                datum = self.dataset.id2datum[quesid]
+                label = datum['label']
+                encoding.append(supp[quesid][-1])
+                correctness_label.append(float(ans in label))
+                if ans in label:
+                    score += label[ans]
+                else:
+                    incorr += 1
+                    sent, pred, label, label_confidence, _ = supp[quesid]
+                    csvwriter.writerow([incorr, sent, pred, label, label_confidence.item()])
+        encoding = np.array(encoding)
+        correctness_label = np.array(correctness_label)
+        print(encoding.shape, correctness_label.shape, correctness_label.mean())
+        import ipdb; ipdb.set_trace()
         return score / len(quesid2ans)
 
     def dump_result(self, quesid2ans: dict, path):
