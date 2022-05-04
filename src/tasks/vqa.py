@@ -197,6 +197,20 @@ class VQA:
             evaluator.dump_result(quesid2ans, dump)
         return quesid2ans
 
+    def answer_only(self):
+        with open("adversarial_samples_to_annotate.csv") as f:
+            reader = csv.reader(f)
+            samples = [ row for row in reader ]
+        import ipdb; ipdb.set_trace()
+        for img_id, sent in samples:
+            dp = subprocess.Popen(["display", f"../VQA_dataset_raw/val2014/val2014/{img_id}.jpg"])
+            print(f"Question:\t{sent}")
+            ans = input("Your Answer:\t")
+            with open("adversarial_samples_to_annotate_answers.csv", "a") as f:
+                writer = csv.writer(f)
+                writer.writerow([img_id, sent, ans])
+            dp.kill()
+
     def evaluate(self, eval_tuple: DataTuple, dump=None):
         """Evaluate all data in data_tuple."""
         quesid2ans = self.predict(eval_tuple, dump)
@@ -259,6 +273,10 @@ if __name__ == "__main__":
                 dump=os.path.join(args.output, 'interact.json')
             )
             print(result)
+        elif 'answer_only' in args.test:    
+            # Since part of valididation data are used in pre-training/fine-tuning,
+            # only validate on the minival set.
+            vqa.answer_only()
         else:
             assert False, "No such test option for %s" % args.test
     else:
