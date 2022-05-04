@@ -3,6 +3,8 @@
 
 import os
 import collections
+import subprocess
+import csv
 
 import torch
 import torch.nn as nn
@@ -33,8 +35,12 @@ def get_data_tuple(splits: str, bs:int, shuffle=False, drop_last=False) -> DataT
 class VQA:
     def __init__(self):
         # Datasets
+        # self.train_tuple = get_data_tuple(
+        #     args.train, bs=args.batch_size, shuffle=True, drop_last=True
+        # )
+        # Trickery
         self.train_tuple = get_data_tuple(
-            args.train, bs=args.batch_size, shuffle=True, drop_last=True
+            "minival", bs=args.batch_size, shuffle=True, drop_last=True
         )
         if args.valid != "":
             self.valid_tuple = get_data_tuple(
@@ -147,6 +153,50 @@ class VQA:
             evaluator.dump_result(quesid2ans, dump)
         return quesid2ans
 
+    def interact(self, eval_tuple: DataTuple, dump=None):
+        """
+        Predict the answers to questions in a data split.
+
+        :param eval_tuple: The data tuple to be evaluated.
+        :param dump: The path of saved file to dump results.
+        :return: A dict of question_id to answer.
+        """
+        self.model.eval()
+        dset, loader, evaluator = eval_tuple
+        quesid2ans = {}
+        for i, datum_tuple in enumerate(loader):
+            ques_id, feats, boxes, sent, _, img_id = datum_tuple
+            img_id = img_id[0]
+            print(f"-------\n{img_id}")
+            dp = subprocess.Popen(["display", f"../VQA_dataset_raw/val2014/val2014/{img_id}.jpg"])
+            sent = [input("Question:\t")]
+            while True:
+                if sent[0].split(' ')[0] == "next":
+                    break
+                elif sent[0].split(' ')[0] == "quit":
+                    import sys; sys.exit()
+                with torch.no_grad():
+                    feats, boxes = feats.cuda(), boxes.cuda()
+                    logit = self.model(feats, boxes, sent)
+                    score, label = logit.max(1)
+                    l = label.cpu().numpy().squeeze()
+                    ans = dset.label2ans[l]
+                    print(f"Answer:\t{ans}")
+                    model_failed = input("Model failed?\t")
+                    if model_failed.lower().startswith("y"):
+                        wrong_ans = ans
+                        right_ans = input("Right answer:\t")
+                        with open("adversarial_examples.csv", "a") as f:
+                            writer = csv.writer(f)
+                            writer.writerow([img_id, sent[0], wrong_ans, right_ans])
+                        break
+                    else:
+                        sent = [input("Alt Question:\t")]
+            dp.kill()
+        if dump is not None:
+            evaluator.dump_result(quesid2ans, dump)
+        return quesid2ans
+
     def evaluate(self, eval_tuple: DataTuple, dump=None):
         """Evaluate all data in data_tuple."""
         quesid2ans = self.predict(eval_tuple, dump)
@@ -198,6 +248,15 @@ if __name__ == "__main__":
                 get_data_tuple('minival', bs=950,
                                shuffle=False, drop_last=False),
                 dump=os.path.join(args.output, 'minival_predict.json')
+            )
+            print(result)
+        elif 'interact' in args.test:    
+            # Since part of valididation data are used in pre-training/fine-tuning,
+            # only validate on the minival set.
+            result = vqa.interact(
+                get_data_tuple('minival', bs=1,
+                               shuffle=True, drop_last=False),
+                dump=os.path.join(args.output, 'interact.json')
             )
             print(result)
         else:
